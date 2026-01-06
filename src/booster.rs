@@ -233,6 +233,21 @@ impl Booster {
         valid_dataset: Option<Dataset>,
         parameters: &Value,
     ) -> Result<Self> {
+        Self::train_with_valid_and_callback(dataset, valid_dataset, parameters, |_, _| {})
+    }
+
+    /// Trains a new model with optional validation dataset, early stopping, and progress callback.
+    ///
+    /// The callback receives `(current_iteration, total_iterations)` after each iteration.
+    pub fn train_with_valid_and_callback<F>(
+        dataset: Dataset,
+        valid_dataset: Option<Dataset>,
+        parameters: &Value,
+        mut on_iteration: F,
+    ) -> Result<Self>
+    where
+        F: FnMut(i64, i64),
+    {
         let num_iterations: i64 = parameters["num_iterations"].as_i64().unwrap_or(100);
         let early_stopping_rounds: Option<i64> = parameters["early_stopping_rounds"].as_i64();
 
@@ -270,6 +285,8 @@ impl Booster {
                 handle,
                 &mut is_finished
             ))?;
+
+            on_iteration(iter, num_iterations);
 
             if is_finished != 0 {
                 break;
