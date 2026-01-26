@@ -436,6 +436,28 @@ impl Dataset {
         )
     }
 
+    /// Save dataset to binary file for fast loading later.
+    ///
+    /// Binary files can be loaded much faster than creating from dataframe,
+    /// and this workflow can reduce peak memory during training by allowing
+    /// the source dataframe to be freed before training begins.
+    ///
+    /// # Example
+    /// ```ignore
+    /// let dataset = Dataset::from_dataframe(df, "label")?;
+    /// dataset.save_binary("/tmp/train.bin")?;
+    /// drop(dataset);
+    /// let dataset = Dataset::from_file("/tmp/train.bin")?;
+    /// ```
+    pub fn save_binary(&self, filename: &str) -> Result<()> {
+        let filename_str = CString::new(filename).unwrap();
+        lgbm_call!(lightgbm3_sys::LGBM_DatasetSaveBinary(
+            self.handle,
+            filename_str.as_ptr()
+        ))?;
+        Ok(())
+    }
+
     /// Get the size of Dataset as `(n_rows, n_features)` tuple
     pub fn size(&self) -> Result<(i32, i32)> {
         let mut n_rows = 0_i32;
@@ -619,5 +641,36 @@ mod tests {
 
         let retrieved_names = dataset.get_feature_names().unwrap();
         assert_eq!(names, retrieved_names);
+    }
+
+    #[test]
+    fn test_save_binary_and_load() {
+        let xs = vec![
+            vec![1.0, 0.1, 0.2],
+            vec![0.7, 0.4, 0.5],
+            vec![0.9, 0.8, 0.5],
+            vec![0.2, 0.2, 0.8],
+            vec![0.1, 0.7, 1.0],
+        ];
+        let labels = vec![0.0, 0.0, 0.0, 1.0, 1.0];
+        let mut dataset = Dataset::from_vec_of_vec(xs, labels, true).unwrap();
+
+        let names = vec!["f1".to_string(), "f2".to_string(), "f3".to_string()];
+        dataset.set_feature_names(&names).unwrap();
+
+        let tmp_path = "/tmp/lgbm_test_dataset.bin";
+        dataset.save_binary(tmp_path).unwrap();
+
+        let original_size = dataset.size().unwrap();
+        drop(dataset);
+
+        let loaded = Dataset::from_file(tmp_path).unwrap();
+        let loaded_size = loaded.size().unwrap();
+        assert_eq!(original_size, loaded_size);
+
+        let loaded_names = loaded.get_feature_names().unwrap();
+        assert_eq!(names, loaded_names);
+
+        std::fs::remove_file(tmp_path).ok();
     }
 }
